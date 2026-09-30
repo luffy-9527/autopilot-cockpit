@@ -1328,13 +1328,15 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       chassis.position.y = 0.5;
       truck.add(chassis);
 
-      // 银色油箱与侧防护网
-      const tankGeom = new THREE.CylinderGeometry(0.3, 0.3, 1.8, 16);
-      const tankMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.85 });
-      const tank = new THREE.Mesh(tankGeom, tankMat);
-      tank.rotation.z = Math.PI / 2;
-      tank.position.set(-1.18, 0.5, 0.2);
-      truck.add(tank);
+      // 银色油箱与侧防护组件（沿车身前后 Z 轴平整布置在车架侧下方，严禁横向凸出）
+      const tankGeom = new THREE.CylinderGeometry(0.28, 0.28, 1.6, 16);
+      const tankMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.85, roughness: 0.3 });
+      const tankL = new THREE.Mesh(tankGeom, tankMat);
+      tankL.rotation.x = Math.PI / 2;
+      tankL.position.set(-1.08, 0.48, -0.6);
+      const tankR = tankL.clone();
+      tankR.position.x = 1.08;
+      truck.add(tankL, tankR);
 
       // 驾驶室 (Tractor Cabin)
       const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.3, 2.1), cabinMat);
@@ -1664,11 +1666,11 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     const trafficGroup = new THREE.Group();
 
     const truckGroup = buildHeavyTruck(0xf59e0b);
-    truckGroup.position.set(4.8, 0, -20);
+    truckGroup.position.set(8.8, 0, -22);
     trafficGroup.add(truckGroup);
 
     const carAheadGroup = buildTrafficSedan(0x1e293b, 0xf59e0b, false);
-    carAheadGroup.position.set(4.5, 0, -45);
+    carAheadGroup.position.set(4.7, 0, -45);
     trafficGroup.add(carAheadGroup);
 
     const oncoming1 = buildTrafficSedan(0x334155, 0x06b6d4, true);
@@ -1784,11 +1786,11 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         id: 'truck-1',
         type: 'truck',
         label: '同向车',
-        distance: 18,
+        distance: 20,
         speed: 80,
-        lane: 1,
-        x: 4.8,
-        z: -20,
+        lane: 2,
+        x: 8.8,
+        z: -22,
       },
       {
         id: 'car-2',
@@ -1797,7 +1799,7 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         distance: 42,
         speed: 99,
         lane: 1,
-        x: 4.5,
+        x: 4.7,
         z: -45,
       },
       {
@@ -1960,17 +1962,32 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         w.rotation.x -= trafficRotDelta;
       });
 
-      // F. 周围车辆相对位移
-      const truckRelSpeed = (80 - currentSpd) * 0.25 * delta;
+      // F. 周围车辆相对物理位移系统
+      // 物理定律：自车速度 currentSpd 越大，被自车超越的同向车越迅速相对后移 (+Z 方向)
+      // 60km/h 巡航时，同向 80/99km/h 车辆比自车快，向前拉开距离 (-Z 方向)；120km/h 疾驰时，自车迅速追赶并超越它们！
+      const kRel = 0.32;
+
+      // 1. 同向大货车 (设定时速 80 km/h)
+      const truckRelSpeed = (currentSpd - 80) * kRel * delta;
       truckGroup.position.z += truckRelSpeed;
-      if (truckGroup.position.z > 15) truckGroup.position.z = -55;
-      if (truckGroup.position.z < -65) truckGroup.position.z = -15;
+      if (truckGroup.position.z > 30) {
+        truckGroup.position.z = -140;
+      }
+      if (truckGroup.position.z < -160) {
+        truckGroup.position.z = 25;
+      }
 
-      const carAheadRelSpeed = (99 - currentSpd) * 0.25 * delta;
+      // 2. 同向小轿车 (设定时速 99 km/h)
+      const carAheadRelSpeed = (currentSpd - 99) * kRel * delta;
       carAheadGroup.position.z += carAheadRelSpeed;
-      if (carAheadGroup.position.z > 20) carAheadGroup.position.z = -65;
-      if (carAheadGroup.position.z < -80) carAheadGroup.position.z = -25;
+      if (carAheadGroup.position.z > 30) {
+        carAheadGroup.position.z = -120;
+      }
+      if (carAheadGroup.position.z < -160) {
+        carAheadGroup.position.z = 25;
+      }
 
+      // 3. 对向车辆 (迎面驶来，相对速度叠加)
       oncoming1.position.z += (currentSpd + 87) * 0.3 * delta;
       if (oncoming1.position.z > 30) oncoming1.position.z = -160;
 

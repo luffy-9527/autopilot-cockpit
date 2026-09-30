@@ -115,12 +115,15 @@ export function App() {
 
   // 4. 车辆感知数据回传联动（更新前车距离与 TTC）
   const handleVehicleDataUpdate = (vehicles: SurroundingVehicle[]) => {
-    // 寻找最近的同向同道或相邻车道车辆
-    const frontCar = vehicles.find((v) => v.id === 'truck-1' || v.id === 'car-2');
+    // 寻找自车前方最近的同向车辆 (z < -3.8)
+    const frontCars = vehicles.filter(
+      (v) => (v.id === 'car-2' || v.id === 'truck-1') && v.z < -3.8
+    );
+    const frontCar = frontCars.sort((a, b) => a.distance - b.distance)[0];
     if (frontCar) {
       const dist = frontCar.distance;
       const relSpeed = Math.max(1, cockpitState.currentSpeed - frontCar.speed);
-      const ttcVal = ((dist / (relSpeed * (1000 / 3600)))).toFixed(1);
+      const ttcVal = (dist / (relSpeed * (1000 / 3600))).toFixed(1);
 
       setCockpitState((prev) => {
         if (prev.frontCarDistance === dist && prev.ttc === `${ttcVal}s`) return prev;
@@ -128,6 +131,15 @@ export function App() {
           ...prev,
           frontCarDistance: dist,
           ttc: Number(ttcVal) > 0 && Number(ttcVal) < 15 ? `${ttcVal}s` : '--',
+        };
+      });
+    } else {
+      setCockpitState((prev) => {
+        if (prev.frontCarDistance === null && prev.ttc === '--') return prev;
+        return {
+          ...prev,
+          frontCarDistance: null,
+          ttc: '--',
         };
       });
     }
