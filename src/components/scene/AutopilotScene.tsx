@@ -10,6 +10,7 @@ interface AutopilotSceneProps {
   cameraView: CameraView;
   layers: LayerVisibility;
   timeOfDay?: TimeOfDay;
+  laneStatusText?: string;
   onVehicleDataUpdate?: (vehicles: SurroundingVehicle[]) => void;
   onPerfUpdate?: (stats: PerfStats) => void;
 }
@@ -19,6 +20,7 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
   cameraView,
   layers,
   timeOfDay = 'day',
+  laneStatusText = '变道中',
   onVehicleDataUpdate,
   onPerfUpdate,
 }) => {
@@ -27,6 +29,9 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
 
   const onPerfUpdateRef = useRef(onPerfUpdate);
   onPerfUpdateRef.current = onPerfUpdate;
+
+  const laneStatusTextRef = useRef(laneStatusText);
+  laneStatusTextRef.current = laneStatusText;
 
   const speedRef = useRef(currentSpeed);
   speedRef.current = currentSpeed;
@@ -414,17 +419,38 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     }
     roadGroup.add(delineatorGroup);
 
-    // 中间双黄实线
-    const yellowLineMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
-    const doubleYellow1 = new THREE.Mesh(new THREE.PlaneGeometry(0.18, ROAD_LENGTH), yellowLineMat);
-    doubleYellow1.rotation.x = -Math.PI / 2;
-    doubleYellow1.position.set(-1.85, 0.02, -ROAD_LENGTH / 4);
-    roadGroup.add(doubleYellow1);
+    // 高速公路中央连续防撞混凝土隔离墙 (Central Jersey Barrier)
+    const barrierMat = new THREE.MeshStandardMaterial({
+      color: 0x64748b,
+      roughness: 0.85,
+      metalness: 0.1,
+    });
+    const barrier = new THREE.Mesh(
+      new THREE.BoxGeometry(0.52, 0.62, ROAD_LENGTH),
+      barrierMat
+    );
+    barrier.position.set(-1.7, 0.31, -ROAD_LENGTH / 4);
+    roadGroup.add(barrier);
 
-    const doubleYellow2 = new THREE.Mesh(new THREE.PlaneGeometry(0.18, ROAD_LENGTH), yellowLineMat);
-    doubleYellow2.rotation.x = -Math.PI / 2;
-    doubleYellow2.position.set(-1.55, 0.02, -ROAD_LENGTH / 4);
-    roadGroup.add(doubleYellow2);
+    // 隔离墙顶部防眩目金属护栏
+    const antiGlareRail = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.18, ROAD_LENGTH),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.8 })
+    );
+    antiGlareRail.position.set(-1.7, 0.62 + 0.09, -ROAD_LENGTH / 4);
+    roadGroup.add(antiGlareRail);
+
+    // 隔离墙两侧黄色边界实线
+    const yellowLineMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+    const yellowLineL = new THREE.Mesh(new THREE.PlaneGeometry(0.18, ROAD_LENGTH), yellowLineMat);
+    yellowLineL.rotation.x = -Math.PI / 2;
+    yellowLineL.position.set(-2.06, 0.02, -ROAD_LENGTH / 4);
+    roadGroup.add(yellowLineL);
+
+    const yellowLineR = new THREE.Mesh(new THREE.PlaneGeometry(0.18, ROAD_LENGTH), yellowLineMat);
+    yellowLineR.rotation.x = -Math.PI / 2;
+    yellowLineR.position.set(-1.34, 0.02, -ROAD_LENGTH / 4);
+    roadGroup.add(yellowLineR);
 
     // 动态白色虚线分道线
     const whiteLineMat = new THREE.MeshBasicMaterial({ color: 0xdbeafe });
@@ -999,6 +1025,8 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     let egoLidarDome: THREE.Mesh;
     let egoSpotLight: THREE.SpotLight | null = null;
     let egoCabinGroup: THREE.Group;
+    let rightAmberBlinkerMat: THREE.MeshBasicMaterial;
+    let rightAmberGroundMat: THREE.MeshBasicMaterial;
     function buildEgoCar(): THREE.Group {
       const car = new THREE.Group();
 
@@ -1060,6 +1088,39 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       const egoTailFlareR = egoTailFlareL.clone();
       egoTailFlareR.position.x = 0.72;
       car.add(egoTailFlareL, egoTailFlareR);
+
+      // 变道琥珀黄流光转向灯微光片与地面动态警示光
+      rightAmberBlinkerMat = new THREE.MeshBasicMaterial({
+        color: 0xfbbf24,
+        transparent: true,
+        opacity: 0.0,
+      });
+
+      rightAmberGroundMat = new THREE.MeshBasicMaterial({
+        color: 0xf59e0b,
+        transparent: true,
+        opacity: 0.0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+
+      // 1. 右前大灯流光转向灯片
+      const blinkerFrontR = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.18), rightAmberBlinkerMat);
+      blinkerFrontR.position.set(0.82, 0.62, -2.25);
+      // 2. 右后视镜外缘转向灯
+      const blinkerMirrorR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.14), rightAmberBlinkerMat);
+      blinkerMirrorR.position.set(1.06, 0.98, -0.65);
+      // 3. 右后尾灯转向灯
+      const blinkerTailR = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.18), rightAmberBlinkerMat);
+      blinkerTailR.position.set(0.82, 0.72, 2.30);
+      car.add(blinkerFrontR, blinkerMirrorR, blinkerTailR);
+
+      // 4. 右侧地面变道警示流光光毯
+      const blinkerGround = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 9.0), rightAmberGroundMat);
+      blinkerGround.rotation.x = -Math.PI / 2;
+      blinkerGround.position.set(2.4, 0.036, -3.2);
+      blinkerGround.renderOrder = 3;
+      car.add(blinkerGround);
 
       // 创建车体与座舱包裹容器
       const carWrapper = new THREE.Group();
@@ -1666,7 +1727,7 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     const trafficGroup = new THREE.Group();
 
     const truckGroup = buildHeavyTruck(0xf59e0b);
-    truckGroup.position.set(8.8, 0, -22);
+    truckGroup.position.set(8.5, 0, -22);
     trafficGroup.add(truckGroup);
 
     const carAheadGroup = buildTrafficSedan(0x1e293b, 0xf59e0b, false);
@@ -1750,24 +1811,78 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
 
     // 传感器层保持纯净同心圆动态扩散雷达波纹与点云（已彻底移除突兀三角框与扇形线框）
 
-    // 细腻微粒激光雷达点云
-    const particleCount = 700;
+    // 专业级多线束激光雷达点云 (Multi-Beam LiDAR Scan Rings)
+    // 包含 8 层同心环形扫描束 + 障碍物/护栏表面特征反射点，采用深度着色 (Depth Color Gradient)
+    const particleCount = 1200;
     const particleGeom = new THREE.BufferGeometry();
     const particlePositions = new Float32Array(particleCount * 3);
+    const particleColors = new Float32Array(particleCount * 3);
+
+    const colorNear = new THREE.Color(0x00f5ff);  // 鲜亮高科技青
+    const colorMid = new THREE.Color(0x10b981);   // 翠绿 (中场)
+    const colorMid2 = new THREE.Color(0x38bdf8);  // 天蓝 (中远场)
+    const colorFar = new THREE.Color(0x818cf8);   // 紫罗兰 (远场)
+    const tempColor = new THREE.Color();
 
     for (let p = 0; p < particleCount; p++) {
       const pIndex = p * 3;
-      particlePositions[pIndex] = (Math.random() - 0.5) * 36;
-      particlePositions[pIndex + 1] = Math.random() * 2.2 + 0.1;
-      particlePositions[pIndex + 2] = -Math.random() * 85;
+      let x = 0;
+      let y = 0.08;
+      let z = 0;
+
+      if (p < 800) {
+        // A. 800 个点构成 8 层前向扇形扫描弧环 (LiDAR Scan Beams)
+        const ringIdx = Math.floor(p / 100);
+        const baseRadius = 5.0 + ringIdx * 8.5 + (Math.random() - 0.5) * 0.9;
+        const angle = (-Math.PI / 2.4) + Math.random() * ((Math.PI * 2) / 2.4);
+        x = EGO_POS_X + Math.sin(angle) * baseRadius;
+        z = EGO_POS_Z - Math.cos(angle) * baseRadius;
+        y = 0.06 + Math.random() * 0.08;
+      } else if (p < 1050) {
+        // B. 250 个点构成道路两侧防护栏与中央隔离带的竖直特征反射束
+        const isLeft = (p % 2 === 0);
+        x = isLeft ? -1.7 + (Math.random() - 0.5) * 0.35 : 15.5 + (Math.random() - 0.5) * 0.6;
+        y = 0.2 + Math.random() * 0.8;
+        z = EGO_POS_Z - Math.random() * 85;
+      } else {
+        // C. 150 个点构成周围交通车辆表面反射密集点簇
+        const targetVeh = p % 3;
+        const baseZ = targetVeh === 0 ? -22 : (targetVeh === 1 ? -45 : -35);
+        const baseX = targetVeh === 0 ? 8.5 : (targetVeh === 1 ? 4.7 : -5.8);
+        x = baseX + (Math.random() - 0.5) * 2.2;
+        y = 0.3 + Math.random() * 1.6;
+        z = baseZ + (Math.random() - 0.5) * 4.5;
+      }
+
+      particlePositions[pIndex] = x;
+      particlePositions[pIndex + 1] = y;
+      particlePositions[pIndex + 2] = z;
+
+      // 根据距自车距离计算深度颜色
+      const dist = Math.hypot(x - EGO_POS_X, z - EGO_POS_Z);
+      if (dist < 18) {
+        tempColor.copy(colorNear).lerp(colorMid, dist / 18);
+      } else if (dist < 42) {
+        tempColor.copy(colorMid).lerp(colorMid2, (dist - 18) / 24);
+      } else {
+        tempColor.copy(colorMid2).lerp(colorFar, Math.min(1, (dist - 42) / 40));
+      }
+
+      particleColors[pIndex] = tempColor.r;
+      particleColors[pIndex + 1] = tempColor.g;
+      particleColors[pIndex + 2] = tempColor.b;
     }
+
     particleGeom.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+    particleGeom.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
+
     const particleMat = new THREE.PointsMaterial({
-      color: 0xa5f3fc,
-      size: 0.09,
+      size: 0.16,
+      vertexColors: true,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.85,
       blending: THREE.AdditiveBlending,
+      depthWrite: false,
     });
     const pointCloud = new THREE.Points(particleGeom, particleMat);
     pointCloud.name = 'lidarPointCloud';
@@ -1789,7 +1904,7 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         distance: 20,
         speed: 80,
         lane: 2,
-        x: 8.8,
+        x: 8.5,
         z: -22,
       },
       {
@@ -2002,14 +2117,27 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         mat.opacity = Math.max(0, 0.45 - (scaleVal - 1) * 0.5);
       });
 
-      // H. 点云粒子流动
+      // H. 激光雷达点云粒子多线扫描流动
       const posAttr = particleGeom.attributes.position;
       for (let i = 0; i < particleCount; i++) {
-        let pz = posAttr.getZ(i) + flowDelta * 0.8;
-        if (pz > 10) pz = -85;
+        let pz = posAttr.getZ(i) + flowDelta * 0.75;
+        if (pz > 15) {
+          pz -= 95;
+        }
         posAttr.setZ(i, pz);
       }
       posAttr.needsUpdate = true;
+
+      // I. 变道琥珀黄流光转向灯律动闪烁 (约 1.5Hz，占空比 50%)
+      const isLaneChanging = laneStatusTextRef.current?.includes('变道') ?? true;
+      if (isLaneChanging) {
+        const blinkVal = Math.sin(clock.elapsedTime * 9.5) > 0 ? 0.95 : 0.0;
+        if (rightAmberBlinkerMat) rightAmberBlinkerMat.opacity = blinkVal;
+        if (rightAmberGroundMat) rightAmberGroundMat.opacity = blinkVal * 0.32;
+      } else {
+        if (rightAmberBlinkerMat) rightAmberBlinkerMat.opacity = 0.0;
+        if (rightAmberGroundMat) rightAmberGroundMat.opacity = 0.0;
+      }
 
       // I. 图层显隐控制
       const currLayers = layersRef.current;

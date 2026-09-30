@@ -193,6 +193,7 @@ export function App() {
         cameraView={cockpitState.cameraView}
         layers={cockpitState.layers}
         timeOfDay={cockpitState.timeOfDay}
+        laneStatusText={cockpitState.laneStatusText}
         onVehicleDataUpdate={handleVehicleDataUpdate}
         onPerfUpdate={setPerfStats}
       />
