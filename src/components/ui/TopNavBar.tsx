@@ -2,9 +2,19 @@ import React from 'react';
 
 interface TopNavBarProps {
   laneStatusText: string;
+  fps?: number;
+  frameTime?: number;
+  isPerfVisible?: boolean;
+  onTogglePerf?: () => void;
 }
 
-export const TopNavBar: React.FC<TopNavBarProps> = ({ laneStatusText }) => {
+export const TopNavBar: React.FC<TopNavBarProps> = ({
+  laneStatusText,
+  fps,
+  frameTime,
+  isPerfVisible,
+  onTogglePerf,
+}) => {
   return (
     <header className="absolute top-0 left-0 right-0 z-20 flex justify-between items-start p-5 pointer-events-none">
       {/* 左上角：导航转向指示卡片（对齐原图） */}
@@ -71,6 +81,50 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({ laneStatusText }) => {
             LANE CHANGE
           </span>
         </div>
+
+        {/* 实时性能监控胶囊按钮 */}
+        {onTogglePerf && (
+          <button
+            onClick={onTogglePerf}
+            className={`group relative flex items-center gap-2 px-3.5 py-2 rounded-xl backdrop-blur-md border transition-all duration-200 cursor-pointer shadow-xl active:scale-95 ${
+              isPerfVisible
+                ? 'bg-cyan-950/80 border-cyan-400/80 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                : 'bg-slate-950/70 border-slate-800/70 text-slate-300 hover:border-slate-700'
+            }`}
+            title="点击切换性能监控 HUD (快捷键 P)"
+          >
+            {/* 脉冲指示灯 */}
+            <span className="flex h-2 w-2 relative">
+              <span
+                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  (fps ?? 60) >= 50 ? 'bg-cyan-400' : 'bg-amber-400'
+                }`}
+              />
+              <span
+                className={`relative inline-flex rounded-full h-2 w-2 ${
+                  (fps ?? 60) >= 50 ? 'bg-cyan-500' : 'bg-amber-500'
+                }`}
+              />
+            </span>
+
+            <div className="flex items-baseline gap-1 font-mono">
+              <span className="text-sm font-extrabold tracking-tight">
+                {fps ?? 60}
+              </span>
+              <span className="text-[10px] text-slate-400">FPS</span>
+            </div>
+
+            <div className="w-[1px] h-3 bg-slate-700/60" />
+
+            <span className="text-xs font-mono text-slate-400">
+              {frameTime !== undefined ? `${frameTime}ms` : '16.6ms'}
+            </span>
+
+            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-slate-800/90 text-slate-400 border border-slate-700">
+              P
+            </span>
+          </button>
+        )}
       </div>
     </header>
   );

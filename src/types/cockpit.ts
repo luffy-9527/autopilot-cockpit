@@ -2,6 +2,16 @@ export type CameraView = 'chase' | 'top' | 'cockpit' | 'free';
 
 export type TimeOfDay = 'day' | 'night';
 
+export interface PerfStats {
+  fps: number;
+  frameTime: number; // ms
+  drawCalls: number;
+  triangles: number;
+  geometries: number;
+  textures: number;
+  memoryMB?: number;
+}
+
 export interface LayerVisibility {
   path: boolean;        // 规划路径
   box: boolean;         // 3D目标检测框

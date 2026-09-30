@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import type { CameraView, LayerVisibility, SurroundingVehicle, TimeOfDay } from '../../types/cockpit';
+import type { CameraView, LayerVisibility, SurroundingVehicle, TimeOfDay, PerfStats } from '../../types/cockpit';
 import { toScreenPosition } from '../../utils/math';
 
 interface AutopilotSceneProps {
@@ -11,6 +11,7 @@ interface AutopilotSceneProps {
   layers: LayerVisibility;
   timeOfDay?: TimeOfDay;
   onVehicleDataUpdate?: (vehicles: SurroundingVehicle[]) => void;
+  onPerfUpdate?: (stats: PerfStats) => void;
 }
 
 export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
@@ -19,9 +20,13 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
   layers,
   timeOfDay = 'day',
   onVehicleDataUpdate,
+  onPerfUpdate,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [projectedVehicles, setProjectedVehicles] = useState<SurroundingVehicle[]>([]);
+
+  const onPerfUpdateRef = useRef(onPerfUpdate);
+  onPerfUpdateRef.current = onPerfUpdate;
 
   const speedRef = useRef(currentSpeed);
   speedRef.current = currentSpeed;
@@ -1875,6 +1880,9 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
 
     let currentDayRatio = timeOfDayRef.current === 'day' ? 1.0 : 0.0;
 
+    let lastPerfTime = performance.now();
+    let perfFrameCount = 0;
+
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
 
@@ -2142,6 +2150,32 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       }
 
       renderer.render(scene, camera);
+
+      // 性能指标采样 (节流至每 300ms 更新一次，避免高频 React re-render)
+      perfFrameCount++;
+      const now = performance.now();
+      const elapsed = now - lastPerfTime;
+      if (elapsed >= 300) {
+        const currentFps = Math.round((perfFrameCount * 1000) / elapsed);
+        const frameTime = parseFloat((elapsed / perfFrameCount).toFixed(1));
+        const mem = (performance as any).memory;
+        const memoryMB = mem ? Math.round(mem.usedJSHeapSize / (1024 * 1024)) : undefined;
+
+        if (onPerfUpdateRef.current) {
+          onPerfUpdateRef.current({
+            fps: currentFps,
+            frameTime,
+            drawCalls: renderer.info.render.calls,
+            triangles: renderer.info.render.triangles,
+            geometries: renderer.info.memory.geometries,
+            textures: renderer.info.memory.textures,
+            memoryMB,
+          });
+        }
+
+        lastPerfTime = now;
+        perfFrameCount = 0;
+      }
     };
 
     animate();

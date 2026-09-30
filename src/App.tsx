@@ -5,15 +5,21 @@ import { DecisionLog } from './components/ui/DecisionLog';
 import { Speedometer } from './components/ui/Speedometer';
 import { RightPanel } from './components/ui/RightPanel';
 import { BottomControls } from './components/ui/BottomControls';
+import { PerformanceHUD } from './components/ui/PerformanceHUD';
 import type {
   CameraView,
   CockpitState,
   LayerVisibility,
   SurroundingVehicle,
   TimeOfDay,
+  PerfStats,
 } from './types/cockpit';
 
 export function App() {
+  // 性能监视器状态 (默认展开，可按 P 键或点击右上角胶囊收起)
+  const [perfStats, setPerfStats] = useState<PerfStats | null>(null);
+  const [showPerfHUD, setShowPerfHUD] = useState<boolean>(true);
+
   // 1. 核心自动驾驶与座舱状态
   const [cockpitState, setCockpitState] = useState<CockpitState>({
     targetSpeed: 120,
@@ -176,10 +182,17 @@ export function App() {
         layers={cockpitState.layers}
         timeOfDay={cockpitState.timeOfDay}
         onVehicleDataUpdate={handleVehicleDataUpdate}
+        onPerfUpdate={setPerfStats}
       />
 
       {/* 2D 车机座舱 HUD 系统 UI 层 */}
-      <TopNavBar laneStatusText={cockpitState.laneStatusText} />
+      <TopNavBar
+        laneStatusText={cockpitState.laneStatusText}
+        fps={perfStats?.fps}
+        frameTime={perfStats?.frameTime}
+        isPerfVisible={showPerfHUD}
+        onTogglePerf={() => setShowPerfHUD((prev) => !prev)}
+      />
       <DecisionLog logs={cockpitState.decisionLogs} />
       <Speedometer
         currentSpeed={cockpitState.currentSpeed}
@@ -200,6 +213,14 @@ export function App() {
         onToggleLayer={handleToggleLayer}
         onSetSpeed={handleSetSpeed}
         onTimeOfDayChange={handleTimeOfDayChange}
+      />
+
+      {/* 实时性能 HUD 监控浮窗 */}
+      <PerformanceHUD
+        stats={perfStats}
+        isVisible={showPerfHUD}
+        onClose={() => setShowPerfHUD(false)}
+        onToggle={() => setShowPerfHUD((prev) => !prev)}
       />
     </div>
   );
