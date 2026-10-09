@@ -187,8 +187,8 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       side: THREE.DoubleSide,
     });
 
-    // 3.3 汽车灯具透镜光晕贴图 (白光大灯光晕与红光尾灯光晕)
-    function createLightFlareTexture(colorType: 'white' | 'red') {
+    // 3.3 汽车灯具透镜光晕贴图 (白光大灯光晕、红光尾灯光晕与琥珀色转向灯光晕)
+    function createLightFlareTexture(colorType: 'white' | 'red' | 'amber') {
       const c = document.createElement('canvas');
       c.width = 128;
       c.height = 128;
@@ -200,6 +200,11 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         grad.addColorStop(0.25, 'rgba(240, 249, 255, 0.7)');
         grad.addColorStop(0.55, 'rgba(186, 230, 253, 0.3)');
         grad.addColorStop(1, 'rgba(186, 230, 253, 0)');
+      } else if (colorType === 'amber') {
+        grad.addColorStop(0, 'rgba(255, 210, 60, 0.98)');
+        grad.addColorStop(0.25, 'rgba(245, 158, 11, 0.75)');
+        grad.addColorStop(0.55, 'rgba(217, 119, 6, 0.32)');
+        grad.addColorStop(1, 'rgba(217, 119, 6, 0)');
       } else {
         grad.addColorStop(0, 'rgba(255, 80, 80, 0.95)');
         grad.addColorStop(0.25, 'rgba(239, 68, 68, 0.75)');
@@ -1026,7 +1031,6 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     let egoSpotLight: THREE.SpotLight | null = null;
     let egoCabinGroup: THREE.Group;
     let rightAmberBlinkerMat: THREE.MeshBasicMaterial;
-    let rightAmberGroundMat: THREE.MeshBasicMaterial;
     function buildEgoCar(): THREE.Group {
       const car = new THREE.Group();
 
@@ -1089,38 +1093,22 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       egoTailFlareR.position.x = 0.72;
       car.add(egoTailFlareL, egoTailFlareR);
 
-      // 变道琥珀黄流光转向灯微光片与地面动态警示光
+      // 右侧转向灯柔和径向透镜光晕（边缘完全透明消融，贴合原厂灯腔内部）
       rightAmberBlinkerMat = new THREE.MeshBasicMaterial({
-        color: 0xfbbf24,
-        transparent: true,
-        opacity: 0.0,
-      });
-
-      rightAmberGroundMat = new THREE.MeshBasicMaterial({
-        color: 0xf59e0b,
+        map: createLightFlareTexture('amber'),
         transparent: true,
         opacity: 0.0,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
       });
 
-      // 1. 右前大灯流光转向灯片
-      const blinkerFrontR = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.18), rightAmberBlinkerMat);
-      blinkerFrontR.position.set(0.82, 0.62, -2.25);
-      // 2. 右后视镜外缘转向灯
-      const blinkerMirrorR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.14), rightAmberBlinkerMat);
-      blinkerMirrorR.position.set(1.06, 0.98, -0.65);
-      // 3. 右后尾灯转向灯
-      const blinkerTailR = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.18), rightAmberBlinkerMat);
-      blinkerTailR.position.set(0.82, 0.72, 2.30);
-      car.add(blinkerFrontR, blinkerMirrorR, blinkerTailR);
-
-      // 4. 右侧地面变道警示流光光毯
-      const blinkerGround = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 9.0), rightAmberGroundMat);
-      blinkerGround.rotation.x = -Math.PI / 2;
-      blinkerGround.position.set(2.4, 0.036, -3.2);
-      blinkerGround.renderOrder = 3;
-      car.add(blinkerGround);
+      const blinkerTailHaloR = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.52, 0.32),
+        rightAmberBlinkerMat
+      );
+      blinkerTailHaloR.position.set(0.76, 0.74, 2.28);
+      car.add(blinkerTailHaloR);
 
       // 创建车体与座舱包裹容器
       const carWrapper = new THREE.Group();
@@ -2128,15 +2116,13 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       }
       posAttr.needsUpdate = true;
 
-      // I. 变道琥珀黄流光转向灯律动闪烁 (约 1.5Hz，占空比 50%)
+      // I. 变道琥珀色尾灯柔和透镜光晕闪烁
       const isLaneChanging = laneStatusTextRef.current?.includes('变道') ?? true;
       if (isLaneChanging) {
-        const blinkVal = Math.sin(clock.elapsedTime * 9.5) > 0 ? 0.95 : 0.0;
+        const blinkVal = Math.sin(clock.elapsedTime * 9.5) > 0 ? 0.85 : 0.0;
         if (rightAmberBlinkerMat) rightAmberBlinkerMat.opacity = blinkVal;
-        if (rightAmberGroundMat) rightAmberGroundMat.opacity = blinkVal * 0.32;
       } else {
         if (rightAmberBlinkerMat) rightAmberBlinkerMat.opacity = 0.0;
-        if (rightAmberGroundMat) rightAmberGroundMat.opacity = 0.0;
       }
 
       // I. 图层显隐控制
