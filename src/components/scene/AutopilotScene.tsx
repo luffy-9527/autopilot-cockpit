@@ -11,8 +11,13 @@ interface AutopilotSceneProps {
   layers: LayerVisibility;
   timeOfDay?: TimeOfDay;
   laneStatusText?: string;
+  egoLane?: 0 | 1 | 2;
+  autoLaneChange?: boolean;
   onVehicleDataUpdate?: (vehicles: SurroundingVehicle[]) => void;
   onPerfUpdate?: (stats: PerfStats) => void;
+  onAutoLaneChangeTrigger?: (targetLane: 0 | 1 | 2, reasonText: string) => void;
+  onLaneChangeComplete?: (lane: 0 | 1 | 2) => void;
+  onLaneChangeBlocked?: (safeLane: 0 | 1 | 2, reasonText: string) => void;
 }
 
 export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
@@ -21,8 +26,13 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
   layers,
   timeOfDay = 'day',
   laneStatusText = '变道中',
+  egoLane = 0,
+  autoLaneChange = true,
   onVehicleDataUpdate,
   onPerfUpdate,
+  onAutoLaneChangeTrigger,
+  onLaneChangeComplete,
+  onLaneChangeBlocked,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [projectedVehicles, setProjectedVehicles] = useState<SurroundingVehicle[]>([]);
@@ -32,6 +42,21 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
 
   const laneStatusTextRef = useRef(laneStatusText);
   laneStatusTextRef.current = laneStatusText;
+
+  const egoLaneRef = useRef<0 | 1 | 2>(egoLane);
+  egoLaneRef.current = egoLane;
+
+  const autoLaneChangeRef = useRef(autoLaneChange);
+  autoLaneChangeRef.current = autoLaneChange;
+
+  const onAutoLaneChangeTriggerRef = useRef(onAutoLaneChangeTrigger);
+  onAutoLaneChangeTriggerRef.current = onAutoLaneChangeTrigger;
+
+  const onLaneChangeCompleteRef = useRef(onLaneChangeComplete);
+  onLaneChangeCompleteRef.current = onLaneChangeComplete;
+
+  const onLaneChangeBlockedRef = useRef(onLaneChangeBlocked);
+  onLaneChangeBlockedRef.current = onLaneChangeBlocked;
 
   const speedRef = useRef(currentSpeed);
   speedRef.current = currentSpeed;
@@ -1030,6 +1055,7 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     let egoLidarDome: THREE.Mesh;
     let egoSpotLight: THREE.SpotLight | null = null;
     let egoCabinGroup: THREE.Group;
+    let leftAmberBlinkerMat: THREE.MeshBasicMaterial;
     let rightAmberBlinkerMat: THREE.MeshBasicMaterial;
     function buildEgoCar(): THREE.Group {
       const car = new THREE.Group();
@@ -1093,9 +1119,18 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       egoTailFlareR.position.x = 0.72;
       car.add(egoTailFlareL, egoTailFlareR);
 
-      // 右侧转向灯柔和径向透镜光晕（边缘完全透明消融，贴合原厂灯腔内部）
+      // 左右转向灯柔和径向透镜光晕（边缘完全透明消融，贴合原厂灯腔内部）
+      const amberFlareTex = createLightFlareTexture('amber');
+      leftAmberBlinkerMat = new THREE.MeshBasicMaterial({
+        map: amberFlareTex,
+        transparent: true,
+        opacity: 0.0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
       rightAmberBlinkerMat = new THREE.MeshBasicMaterial({
-        map: createLightFlareTexture('amber'),
+        map: amberFlareTex,
         transparent: true,
         opacity: 0.0,
         depthWrite: false,
@@ -1103,12 +1138,18 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         side: THREE.DoubleSide,
       });
 
+      const blinkerTailHaloL = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.52, 0.32),
+        leftAmberBlinkerMat
+      );
+      blinkerTailHaloL.position.set(-0.76, 0.74, 2.28);
+
       const blinkerTailHaloR = new THREE.Mesh(
         new THREE.PlaneGeometry(0.52, 0.32),
         rightAmberBlinkerMat
       );
       blinkerTailHaloR.position.set(0.76, 0.74, 2.28);
-      car.add(blinkerTailHaloR);
+      car.add(blinkerTailHaloL, blinkerTailHaloR);
 
       // 创建车体与座舱包裹容器
       const carWrapper = new THREE.Group();
@@ -1703,7 +1744,7 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     }
 
     // 自车基准世界坐标（身位前移至 z = -3.8，确保完整车身尽收眼底）
-    const EGO_POS_X = 0.5;
+    const EGO_POS_X = 0.6;
     const EGO_POS_Z = -3.8;
 
     // 实例化自车
@@ -1715,11 +1756,11 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     const trafficGroup = new THREE.Group();
 
     const truckGroup = buildHeavyTruck(0xf59e0b);
-    truckGroup.position.set(8.5, 0, -22);
+    truckGroup.position.set(8.9, 0, -28);
     trafficGroup.add(truckGroup);
 
     const carAheadGroup = buildTrafficSedan(0x1e293b, 0xf59e0b, false);
-    carAheadGroup.position.set(4.7, 0, -45);
+    carAheadGroup.position.set(0.6, 0, -48);
     trafficGroup.add(carAheadGroup);
 
     const oncoming1 = buildTrafficSedan(0x334155, 0x06b6d4, true);
@@ -1737,17 +1778,14 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     // ==========================================================
     const perceptionGroup = new THREE.Group();
 
-    // 变道规划轨迹线（从自车身位优雅引向右侧匝道）
-    const pathCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(EGO_POS_X, 0.05, EGO_POS_Z),
-      new THREE.Vector3(0.6, 0.05, -13),
-      new THREE.Vector3(1.8, 0.05, -27),
-      new THREE.Vector3(3.8, 0.05, -45),
-      new THREE.Vector3(4.8, 0.05, -68),
-      new THREE.Vector3(4.8, 0.05, -105),
-    ]);
-    const pathPoints = pathCurve.getPoints(60);
-    const pathGeom = new THREE.BufferGeometry().setFromPoints(pathPoints);
+    // 3 条同向标准车道中心横向坐标 (严格对齐车道分界线 -1.34 / 2.6 / 6.8 / 11.0 的几何中心)
+    const LANE_CENTERS: [number, number, number] = [0.6, 4.7, 8.9];
+
+    // 变道与巡航规划路径（共 40 段采样，支持 S 型平滑变道与车道居中巡航动态重绘）
+    const PATH_SEGMENTS = 40;
+    const pathPositions = new Float32Array((PATH_SEGMENTS + 1) * 3);
+    const pathGeom = new THREE.BufferGeometry();
+    pathGeom.setAttribute('position', new THREE.BufferAttribute(pathPositions, 3));
     const pathMat = new THREE.LineBasicMaterial({
       color: 0x10b981,
       linewidth: 4,
@@ -1756,7 +1794,8 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     trajectoryLine.name = 'planningPath';
     perceptionGroup.add(trajectoryLine);
 
-    const ribbonGeom = new THREE.PlaneGeometry(1.6, 100, 1, 40);
+    const ribbonGeom = new THREE.PlaneGeometry(1.6, 100, 1, PATH_SEGMENTS);
+    ribbonGeom.rotateX(-Math.PI / 2);
     const ribbonMat = new THREE.MeshBasicMaterial({
       color: 0x10b981,
       transparent: true,
@@ -1765,10 +1804,30 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       depthWrite: false,
     });
     const ribbonMesh = new THREE.Mesh(ribbonGeom, ribbonMat);
-    ribbonMesh.rotation.x = -Math.PI / 2;
-    ribbonMesh.position.set(2.8, 0.04, -53.5);
     ribbonMesh.name = 'planningRibbon';
     perceptionGroup.add(ribbonMesh);
+
+    // 原地更新规划轨迹线与半透明引导光带顶点（0 内存分配，极致性能）
+    const updatePlanningPath = (startX: number, targetX: number) => {
+      const lineAttr = pathGeom.attributes.position as THREE.BufferAttribute;
+      const ribAttr = ribbonGeom.attributes.position as THREE.BufferAttribute;
+      const halfW = 0.82;
+
+      for (let i = 0; i <= PATH_SEGMENTS; i++) {
+        const t = i / PATH_SEGMENTS;
+        const z = EGO_POS_Z - t * 96;
+        const u = Math.min(1, t / 0.45);
+        const smooth = u * u * (3 - 2 * u);
+        const cx = startX + (targetX - startX) * smooth;
+
+        lineAttr.setXYZ(i, cx, 0.05, z);
+        ribAttr.setXYZ(i * 2, cx - halfW, 0.04, z);
+        ribAttr.setXYZ(i * 2 + 1, cx + halfW, 0.04, z);
+      }
+      lineAttr.needsUpdate = true;
+      ribAttr.needsUpdate = true;
+    };
+    updatePlanningPath(EGO_POS_X, LANE_CENTERS[egoLaneRef.current]);
 
     // 地面同心圆动态扩散雷达波纹（以自车为中心）
     const radarRingsGroup = new THREE.Group();
@@ -1889,21 +1948,21 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         id: 'truck-1',
         type: 'truck',
         label: '同向车',
-        distance: 20,
+        distance: 24,
         speed: 80,
         lane: 2,
-        x: 8.5,
-        z: -22,
+        x: 8.9,
+        z: -28,
       },
       {
         id: 'car-2',
         type: 'car',
         label: '同向车',
-        distance: 42,
+        distance: 44,
         speed: 99,
-        lane: 1,
-        x: 4.7,
-        z: -45,
+        lane: 0,
+        x: 0.6,
+        z: -48,
       },
       {
         id: 'oncoming-3',
@@ -1988,6 +2047,12 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
     let lastPerfTime = performance.now();
     let perfFrameCount = 0;
 
+    // 自动与手动变道横向动力学及防碰撞状态
+    let currentEgoX = LANE_CENTERS[egoLaneRef.current];
+    let confirmedLane: 0 | 1 | 2 = egoLaneRef.current;
+    let lastAutoTriggerTime = 0;
+    let isChangingLane = false;
+
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
 
@@ -2066,28 +2131,38 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       });
 
       // F. 周围车辆相对物理位移系统
-      // 物理定律：自车速度 currentSpd 越大，被自车超越的同向车越迅速相对后移 (+Z 方向)
-      // 60km/h 巡航时，同向 80/99km/h 车辆比自车快，向前拉开距离 (-Z 方向)；120km/h 疾驰时，自车迅速追赶并超越它们！
       const kRel = 0.32;
+      const prevTruckZ = truckGroup.position.z;
+      const prevCarAheadZ = carAheadGroup.position.z;
 
-      // 1. 同向大货车 (设定时速 80 km/h)
+      // 1. 同向大货车 (设定时速 80 km/h，固定在右侧慢车道 lane 2: x = 8.9)
       const truckRelSpeed = (currentSpd - 80) * kRel * delta;
       truckGroup.position.z += truckRelSpeed;
       if (truckGroup.position.z > 30) {
         truckGroup.position.z = -140;
       }
       if (truckGroup.position.z < -160) {
-        truckGroup.position.z = 25;
+        truckGroup.position.z = 28;
       }
 
-      // 2. 同向小轿车 (设定时速 99 km/h)
+      // 2. 同向小轿车 (设定时速 99 km/h，在快车道 lane 0 与中车道 lane 1 之间动态轮换，绝不与大货车重叠)
       const carAheadRelSpeed = (currentSpd - 99) * kRel * delta;
       carAheadGroup.position.z += carAheadRelSpeed;
       if (carAheadGroup.position.z > 30) {
-        carAheadGroup.position.z = -120;
+        carAheadGroup.position.z = -115;
+        // 重置到前方时，优先生成在自车当前所在车道（0 或 1），以便持续触发真实的自动超车闭环
+        const nextLane: 0 | 1 = confirmedLane === 1 ? 1 : 0;
+        carAheadGroup.position.x = LANE_CENTERS[nextLane];
+        vehicleDataList[1].lane = nextLane;
+        vehicleDataList[1].x = LANE_CENTERS[nextLane];
       }
       if (carAheadGroup.position.z < -160) {
-        carAheadGroup.position.z = 25;
+        carAheadGroup.position.z = 26;
+        // 当自车低速巡航被后方快车超越时，生成在相邻车道避免追尾穿模
+        const passLane: 0 | 1 = confirmedLane === 0 ? 1 : 0;
+        carAheadGroup.position.x = LANE_CENTERS[passLane];
+        vehicleDataList[1].lane = passLane;
+        vehicleDataList[1].x = LANE_CENTERS[passLane];
       }
 
       // 3. 对向车辆 (迎面驶来，相对速度叠加)
@@ -2096,6 +2171,139 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
 
       oncoming2.position.z += (currentSpd + 92) * 0.3 * delta;
       if (oncoming2.position.z > 30) oncoming2.position.z = -140;
+
+      // 同向车辆安全包络配置 (minX: 横向防刮蹭安全中心距, minZ: 纵向防追尾/防穿模安全中心距)
+      const forwardVehicles = [
+        {
+          group: carAheadGroup,
+          speed: 99,
+          name: '慢车',
+          minX: 2.85,
+          minZ: 9.8,
+          prevZ: prevCarAheadZ,
+        },
+        {
+          group: truckGroup,
+          speed: 80,
+          name: '大货车',
+          minX: 3.1,
+          minZ: 13.8,
+          prevZ: prevTruckZ,
+        },
+      ];
+
+      // F.1 手动变道指令 BSD 侧向盲区防碰撞校验（防止变道直接撞上侧方并行车辆）
+      if (egoLaneRef.current !== confirmedLane) {
+        const reqLane = egoLaneRef.current;
+        const reqX = LANE_CENTERS[reqLane];
+        const blockingVeh = forwardVehicles.find(
+          (fv) =>
+            Math.abs(fv.group.position.x - reqX) < 2.2 &&
+            fv.group.position.z > EGO_POS_Z - (fv.minZ + 9) &&
+            fv.group.position.z < EGO_POS_Z + (fv.minZ + 3)
+        );
+
+        if (blockingVeh) {
+          // 目标车道侧方或斜前方处于危险盲区，立即拦截本次变道并回退到安全车道
+          const dirText = reqLane < confirmedLane ? '左' : '右';
+          egoLaneRef.current = confirmedLane;
+          onLaneChangeBlockedRef.current?.(
+            confirmedLane,
+            `BSD 盲区雷达告警：${dirText}侧车道有${blockingVeh.name}并行，已阻止危险变道`
+          );
+        } else {
+          confirmedLane = reqLane;
+        }
+      }
+
+      // F.2 智能自动超车 & AEB 紧急避障变道决策（提前至前方 18m~55m 触发，确保入道完成后再超越）
+      const curLane = confirmedLane;
+      const dx = LANE_CENTERS[curLane] - currentEgoX;
+
+      if (Math.abs(dx) < 0.25 && clock.elapsedTime - lastAutoTriggerTime > 1.2) {
+        for (const fv of forwardVehicles) {
+          const sameLane = Math.abs(fv.group.position.x - LANE_CENTERS[curLane]) < 1.8;
+          const forwardDist = EGO_POS_Z - fv.group.position.z; // 前方为 -Z，正值表示在自车前方
+          const shouldAutoOvertake =
+            autoLaneChangeRef.current && forwardDist > 18 && forwardDist < 55;
+          const shouldEmergencyAvoid = forwardDist > 0 && forwardDist <= 18;
+
+          if (
+            sameLane &&
+            (shouldAutoOvertake || shouldEmergencyAvoid) &&
+            currentSpd > fv.speed + 2
+          ) {
+            const candidateLanes: Array<0 | 1 | 2> =
+              curLane === 0 ? [1] : curLane === 2 ? [1] : [0, 2];
+
+            const safeLane = candidateLanes.find((cand) => {
+              const candX = LANE_CENTERS[cand];
+              return forwardVehicles.every((other) => {
+                if (Math.abs(other.group.position.x - candX) > 1.8) return true;
+                return (
+                  other.group.position.z < EGO_POS_Z - (other.minZ + 12) ||
+                  other.group.position.z > EGO_POS_Z + (other.minZ + 4)
+                );
+              });
+            });
+
+            if (safeLane !== undefined) {
+              lastAutoTriggerTime = clock.elapsedTime;
+              const dirText = safeLane < curLane ? '左' : '右';
+              confirmedLane = safeLane;
+              egoLaneRef.current = safeLane;
+              onAutoLaneChangeTriggerRef.current?.(
+                safeLane,
+                `前方 ${Math.round(forwardDist)}m 检测到${fv.name}，自动向${dirText}变道超车`
+              );
+              break;
+            }
+          }
+        }
+      }
+
+      // F.3 自车横向平滑插值与真实转向偏航角 (Yaw)
+      const activeTargetX = LANE_CENTERS[confirmedLane];
+      const activeDx = activeTargetX - currentEgoX;
+      currentEgoX += activeDx * Math.min(1, delta * 4.2);
+      egoCarGroup.position.x = currentEgoX;
+
+      const targetYaw = THREE.MathUtils.clamp(-activeDx * 0.08, -0.13, 0.13);
+      egoCarGroup.rotation.y = THREE.MathUtils.lerp(
+        egoCarGroup.rotation.y,
+        targetYaw,
+        Math.min(1, delta * 8)
+      );
+
+      // F.4 绝对物理防重合排斥护盾 (Swept-Corridor Anti-Overlap Shield)
+      // 在自车尚未完全驶出原车道或处于同车道跟车时，严格钳制前后车辆纵向安全包络距，100% 杜绝模型穿模重合
+      const minSweptX = Math.min(currentEgoX, activeTargetX) - 1.35;
+      const maxSweptX = Math.max(currentEgoX, activeTargetX) + 1.35;
+
+      for (const fv of forwardVehicles) {
+        const latGap = Math.abs(fv.group.position.x - currentEgoX);
+        const inLateralConflict =
+          latGap < fv.minX ||
+          (fv.group.position.x >= minSweptX && fv.group.position.x <= maxSweptX);
+
+        if (inLateralConflict) {
+          if (fv.prevZ <= EGO_POS_Z) {
+            // 前车始终保持在自车车头安全包络线前方，直到自车横向完全变道脱离后再从旁超越
+            if (fv.group.position.z > EGO_POS_Z - fv.minZ) {
+              fv.group.position.z = EGO_POS_Z - fv.minZ;
+            }
+          } else {
+            // 后方快车接近时，保持在自车车尾安全包络线后方
+            if (fv.group.position.z < EGO_POS_Z + fv.minZ) {
+              fv.group.position.z = EGO_POS_Z + fv.minZ;
+            }
+          }
+        }
+      }
+
+      // 雷达同心圆与动态 S 型规划引导路径实时跟随自车
+      radarRingsGroup.position.x = currentEgoX;
+      updatePlanningPath(currentEgoX, activeTargetX);
 
       // G. 雷达扩散波纹动画
       ringMeshes.forEach((ring, index) => {
@@ -2116,16 +2324,27 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       }
       posAttr.needsUpdate = true;
 
-      // I. 变道琥珀色尾灯柔和透镜光晕闪烁
-      const isLaneChanging = laneStatusTextRef.current?.includes('变道') ?? true;
-      if (isLaneChanging) {
-        const blinkVal = Math.sin(clock.elapsedTime * 9.5) > 0 ? 0.85 : 0.0;
-        if (rightAmberBlinkerMat) rightAmberBlinkerMat.opacity = blinkVal;
+      // I. 变道状态判定与左/右琥珀色尾灯柔和透镜光晕闪烁
+      if (Math.abs(activeDx) > 0.12) {
+        isChangingLane = true;
+        const blinkVal = Math.sin(clock.elapsedTime * 10) > 0 ? 0.88 : 0.0;
+        if (activeDx < 0) {
+          if (leftAmberBlinkerMat) leftAmberBlinkerMat.opacity = blinkVal;
+          if (rightAmberBlinkerMat) rightAmberBlinkerMat.opacity = 0.0;
+        } else {
+          if (rightAmberBlinkerMat) rightAmberBlinkerMat.opacity = blinkVal;
+          if (leftAmberBlinkerMat) leftAmberBlinkerMat.opacity = 0.0;
+        }
       } else {
+        if (leftAmberBlinkerMat) leftAmberBlinkerMat.opacity = 0.0;
         if (rightAmberBlinkerMat) rightAmberBlinkerMat.opacity = 0.0;
+        if (isChangingLane) {
+          isChangingLane = false;
+          onLaneChangeCompleteRef.current?.(egoLaneRef.current);
+        }
       }
 
-      // I. 图层显隐控制
+      // I.1 图层显隐控制
       const currLayers = layersRef.current;
       trajectoryLine.visible = currLayers.path;
       ribbonMesh.visible = currLayers.path;
@@ -2137,8 +2356,7 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         if (b) b.visible = currLayers.box;
       });
 
-      // J. 相机视角平滑控制（针对用户诉求：跟车与自由模式下车辆身位前移，完整看到整个车身）
-      // J. 相机视角平滑控制与座舱显示联动
+      // J. 相机视角平滑跟随自车横向位置与座舱显示联动
       const targetView = viewRef.current;
 
       // 驾驶视角下自动隐藏座舱顶盖与挡风玻璃以消除穿模黑色伪影，其他视角完整还原车身
@@ -2147,27 +2365,20 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       }
 
       if (targetView === 'chase') {
-        // 跟车模式：自车在 z = -3.8，相机优化置于后上方 (0.5, 5.6, 6.2)，视线对准 (0.5, 1.1, -16)
-        // 彻底杜绝底部车机面板遮挡车尾，整车身姿完整展现，车前宽幅大灯光毯与前方车流一览无余
-        camera.position.lerp(new THREE.Vector3(0.5, 5.6, 6.2), 0.08);
-        camera.lookAt(0.5, 1.1, -16);
+        camera.position.lerp(new THREE.Vector3(currentEgoX, 5.6, 6.2), 0.08);
+        camera.lookAt(currentEgoX, 1.1, -16);
       } else if (targetView === 'top') {
-        // 俯视模式 (BEV)：自车在 z = -3.8，相机精准定位在 (0.5, 36, -8.0)，视线投向 (0.5, 0, -13.0)
-        // 确保自车稳定清晰展现于画面中下部（完美避开底部 HUD 控制栏），前方车道标线、规划路径与车流尽收眼底
-        camera.position.lerp(new THREE.Vector3(0.5, 36, -8.0), 0.08);
-        camera.lookAt(0.5, 0, -13.0);
+        camera.position.lerp(new THREE.Vector3(currentEgoX, 36, -8.0), 0.08);
+        camera.lookAt(currentEgoX, 0, -13.0);
       } else if (targetView === 'cockpit') {
-        // 驾驶第一人称视角：相机精准置于驾驶员前方视点 (0.5, 1.25, -4.2)，视线对准正前方远方道路 (0.5, 1.15, -34)
-        // 隐藏座舱顶盖（彻底根除顶部黑色多边形穿模与错误渲染），下部清晰展现标志性深蓝引擎盖与全景路况
-        camera.position.lerp(new THREE.Vector3(0.5, 1.25, -4.2), 0.08);
-        camera.lookAt(0.5, 1.15, -34);
+        camera.position.lerp(new THREE.Vector3(currentEgoX, 1.25, -4.2), 0.12);
+        camera.lookAt(currentEgoX - Math.sin(egoCarGroup.rotation.y) * 14, 1.15, -34);
       } else {
-        // 自由模式：以自车中心 (0.5, 0.9, -3.8) 为环绕原点，自车居中高亮完整展现，支持鼠标拖拽 360 度全方位环视
-        const targetCamX = 0.5 + freeDistance * Math.cos(freePhi) * Math.sin(freeTheta);
+        const targetCamX = currentEgoX + freeDistance * Math.cos(freePhi) * Math.sin(freeTheta);
         const targetCamY = 0.9 + freeDistance * Math.sin(freePhi);
         const targetCamZ = -3.8 + freeDistance * Math.cos(freePhi) * Math.cos(freeTheta);
         camera.position.lerp(new THREE.Vector3(targetCamX, targetCamY, targetCamZ), 0.08);
-        camera.lookAt(0.5, 0.9, -3.8);
+        camera.lookAt(currentEgoX, 0.9, -3.8);
       }
 
       // K. 车辆 2D 悬浮 HUD 标签位置计算
@@ -2185,6 +2396,7 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
         },
         {
           ...vehicleDataList[1],
+          x: carAheadGroup.position.x,
           z: carAheadGroup.position.z,
           distance: Math.round(Math.abs(carAheadGroup.position.z - egoCarGroup.position.z)),
           screenPos: toScreenPosition(

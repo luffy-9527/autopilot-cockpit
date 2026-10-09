@@ -65,20 +65,32 @@ export const TopNavBar: React.FC<TopNavBarProps> = ({
           </div>
         </div>
 
-        {/* 变道中 LANE CHANGE 芯片边框徽章 */}
-        <div className="relative flex flex-col items-center justify-center px-4 py-2 bg-emerald-950/40 border border-emerald-500/60 rounded-lg text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.25)]">
+        {/* 变道 / 车道保持 芯片边框徽章 */}
+        <div
+          className={`relative flex flex-col items-center justify-center px-4 py-2 rounded-lg border transition-all duration-300 ${
+            laneStatusText.includes('变道')
+              ? 'bg-amber-950/50 border-amber-500/70 text-amber-300 shadow-[0_0_14px_rgba(245,158,11,0.3)]'
+              : 'bg-emerald-950/40 border-emerald-500/60 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
+          }`}
+        >
           {/* 边角装饰 */}
-          <div className="absolute top-0 left-0 w-1.5 h-1.5 border-t-2 border-l-2 border-emerald-400" />
-          <div className="absolute top-0 right-0 w-1.5 h-1.5 border-t-2 border-r-2 border-emerald-400" />
-          <div className="absolute bottom-0 left-0 w-1.5 h-1.5 border-b-2 border-l-2 border-emerald-400" />
-          <div className="absolute bottom-0 right-0 w-1.5 h-1.5 border-b-2 border-r-2 border-emerald-400" />
+          <div className="absolute top-0 left-0 w-1.5 h-1.5 border-t-2 border-l-2 border-current" />
+          <div className="absolute top-0 right-0 w-1.5 h-1.5 border-t-2 border-r-2 border-current" />
+          <div className="absolute bottom-0 left-0 w-1.5 h-1.5 border-b-2 border-l-2 border-current" />
+          <div className="absolute bottom-0 right-0 w-1.5 h-1.5 border-b-2 border-r-2 border-current" />
 
           <div className="flex items-center gap-1.5">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                laneStatusText.includes('变道')
+                  ? 'bg-amber-400 animate-ping'
+                  : 'bg-emerald-400 animate-pulse'
+              }`}
+            />
             <span className="text-xs font-bold tracking-wider">{laneStatusText}</span>
           </div>
-          <span className="text-[9px] tracking-widest text-emerald-300/80 uppercase font-mono mt-0.5">
-            LANE CHANGE
+          <span className="text-[9px] tracking-widest opacity-80 uppercase font-mono mt-0.5">
+            {laneStatusText.includes('变道') ? 'LANE CHANGE' : 'LANE KEEP'}
           </span>
         </div>
 

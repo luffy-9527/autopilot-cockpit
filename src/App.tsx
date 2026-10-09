@@ -41,16 +41,26 @@ export function App() {
       sensor: true,
       pointCloud: true,
     },
-    laneStatusText: '变道中',
+    laneStatusText: '车道保持',
+    egoLane: 0,
+    autoLaneChange: true,
     turnDistanceMeters: 300,
     decisionLogs: [
-      { id: '1', time: '09:19:55', text: '目标车辆间距充足，准备向右变道', type: 'info' },
+      { id: '1', time: '09:19:55', text: 'NOA 领航辅助已激活，智能变道超车就绪', type: 'success' },
       { id: '2', time: '09:19:35', text: '变道完成，恢复正常车道保持', type: 'success' },
       { id: '3', time: '09:19:31', text: '目标车辆间距充足，准备向右变道', type: 'info' },
-      { id: '4', time: '09:19:21', text: '变道完成，恢复正常车道保持', type: 'success' },
-      { id: '5', time: '09:19:17', text: '目标车辆间距充足，准备向右变道', type: 'info' },
+      { id: '4', time: '09:19:21', text: '毫米波与激光雷达多传感融合状态正常', type: 'info' },
     ],
   });
+
+  // 辅助函数：生成当前时间戳 HH:mm:ss
+  const getTimeStr = () => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(
+      2,
+      '0'
+    )}:${String(now.getSeconds()).padStart(2, '0')}`;
+  };
 
   // 2. 车速平滑插值动画（当用户点击 60 / 80 / 100 / 120 时，平滑过渡）
   const targetSpeedRef = useRef(cockpitState.targetSpeed);
@@ -76,23 +86,16 @@ export function App() {
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  // 3. 模拟实时决策流动态追加（每隔 8 秒随机推送一条真实感知策略日志）
+  // 3. 模拟环境感知日志动态追加
   useEffect(() => {
     const candidateTexts = [
-      '监测到右侧车道后方有货车接近，保持安全车距',
-      '目标车道间距充足，执行自主变道策略',
-      '毫米波雷达确认盲区无障碍物，开启右转向信号',
-      '变道完成，平稳恢复 LCC 智能车道居中保持',
-      '高精地图提示前方 300 米向右驶入匝道',
+      '毫米波雷达持续追踪周围 4 辆动态交通目标',
+      '高精地图提示前方 300 米进入平直巡航路段',
+      '多线束激光雷达点云配准正常，盲区无异常障碍物',
     ];
 
     let count = 0;
     const interval = setInterval(() => {
-      const now = new Date();
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(
-        now.getMinutes()
-      ).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-
       const text = candidateTexts[count % candidateTexts.length];
       count++;
 
@@ -101,14 +104,14 @@ export function App() {
         decisionLogs: [
           {
             id: String(Date.now()),
-            time: timeStr,
+            time: getTimeStr(),
             text,
-            type: text.includes('完成') ? 'success' : 'info',
+            type: 'info',
           },
           ...prev.decisionLogs.slice(0, 5),
         ],
       }));
-    }, 9000);
+    }, 12000);
 
     return () => clearInterval(interval);
   }, []);
@@ -145,7 +148,121 @@ export function App() {
     }
   };
 
-  // 5. 事件处理
+  // 5. 变道控制与自动驾驶事件处理
+  const handleManualLaneChange = (direction: 'left' | 'right') => {
+    setCockpitState((prev) => {
+      const nextLane = (
+        direction === 'left' ? Math.max(0, prev.egoLane - 1) : Math.min(2, prev.egoLane + 1)
+      ) as 0 | 1 | 2;
+      if (nextLane === prev.egoLane) return prev;
+      const dirText = direction === 'left' ? '左' : '右';
+      return {
+        ...prev,
+        egoLane: nextLane,
+        laneStatusText: `向${dirText}变道中`,
+        decisionLogs: [
+          {
+            id: String(Date.now()),
+            time: getTimeStr(),
+            text: `手动变道指令：确认${dirText}侧车道安全，开启${dirText}转向灯并执行变道`,
+            type: 'info',
+          },
+          ...prev.decisionLogs.slice(0, 5),
+        ],
+      };
+    });
+  };
+
+  const handleAutoLaneChangeTrigger = (targetLane: 0 | 1 | 2, reasonText: string) => {
+    setCockpitState((prev) => {
+      const dirText = targetLane < prev.egoLane ? '左' : '右';
+      return {
+        ...prev,
+        egoLane: targetLane,
+        laneStatusText: `向${dirText}变道中`,
+        decisionLogs: [
+          {
+            id: String(Date.now()),
+            time: getTimeStr(),
+            text: reasonText,
+            type: 'info',
+          },
+          ...prev.decisionLogs.slice(0, 5),
+        ],
+      };
+    });
+  };
+
+  const handleLaneChangeComplete = (lane: 0 | 1 | 2) => {
+    const laneNames = ['左侧快车道', '中间行车道', '右侧慢车道'];
+    setCockpitState((prev) => ({
+      ...prev,
+      egoLane: lane,
+      laneStatusText: '车道保持',
+      decisionLogs: [
+        {
+          id: String(Date.now()),
+          time: getTimeStr(),
+          text: `变道完成，已平稳切入${laneNames[lane]}并恢复 LCC 居中保持`,
+          type: 'success',
+        },
+        ...prev.decisionLogs.slice(0, 5),
+      ],
+    }));
+  };
+
+  const handleLaneChangeBlocked = (safeLane: 0 | 1 | 2, reasonText: string) => {
+    setCockpitState((prev) => ({
+      ...prev,
+      egoLane: safeLane,
+      laneStatusText: '车道保持',
+      decisionLogs: [
+        {
+          id: String(Date.now()),
+          time: getTimeStr(),
+          text: reasonText,
+          type: 'warning',
+        },
+        ...prev.decisionLogs.slice(0, 5),
+      ],
+    }));
+  };
+
+  const handleToggleAutoLaneChange = () => {
+    setCockpitState((prev) => {
+      const nextAuto = !prev.autoLaneChange;
+      return {
+        ...prev,
+        autoLaneChange: nextAuto,
+        decisionLogs: [
+          {
+            id: String(Date.now()),
+            time: getTimeStr(),
+            text: nextAuto
+              ? 'NOA 智能自主变道超车已开启'
+              : 'NOA 智能自主变道已关闭，切换为手动变道模式',
+            type: nextAuto ? 'success' : 'warning',
+          },
+          ...prev.decisionLogs.slice(0, 5),
+        ],
+      };
+    });
+  };
+
+  // 键盘 A/D 与 左右方向键 快捷触发左/右变道
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') {
+        handleManualLaneChange('left');
+      } else if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') {
+        handleManualLaneChange('right');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const handleCameraViewChange = (view: CameraView) => {
     setCockpitState((prev) => ({ ...prev, cameraView: view }));
   };
@@ -194,8 +311,13 @@ export function App() {
         layers={cockpitState.layers}
         timeOfDay={cockpitState.timeOfDay}
         laneStatusText={cockpitState.laneStatusText}
+        egoLane={cockpitState.egoLane}
+        autoLaneChange={cockpitState.autoLaneChange}
         onVehicleDataUpdate={handleVehicleDataUpdate}
         onPerfUpdate={setPerfStats}
+        onAutoLaneChangeTrigger={handleAutoLaneChangeTrigger}
+        onLaneChangeComplete={handleLaneChangeComplete}
+        onLaneChangeBlocked={handleLaneChangeBlocked}
       />
 
       {/* 2D 车机座舱 HUD 系统 UI 层 */}
@@ -222,10 +344,14 @@ export function App() {
         layers={cockpitState.layers}
         targetSpeed={cockpitState.targetSpeed}
         timeOfDay={cockpitState.timeOfDay}
+        egoLane={cockpitState.egoLane}
+        autoLaneChange={cockpitState.autoLaneChange}
         onCameraViewChange={handleCameraViewChange}
         onToggleLayer={handleToggleLayer}
         onSetSpeed={handleSetSpeed}
         onTimeOfDayChange={handleTimeOfDayChange}
+        onLaneChange={handleManualLaneChange}
+        onToggleAutoLaneChange={handleToggleAutoLaneChange}
       />
 
       {/* 实时性能 HUD 监控浮窗 */}

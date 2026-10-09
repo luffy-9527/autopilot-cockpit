@@ -6,10 +6,14 @@ interface BottomControlsProps {
   layers: LayerVisibility;
   targetSpeed: number;
   timeOfDay: TimeOfDay;
+  egoLane: 0 | 1 | 2;
+  autoLaneChange: boolean;
   onCameraViewChange: (view: CameraView) => void;
   onToggleLayer: (layer: keyof LayerVisibility) => void;
   onSetSpeed: (speed: number) => void;
   onTimeOfDayChange: (time: TimeOfDay) => void;
+  onLaneChange: (direction: 'left' | 'right') => void;
+  onToggleAutoLaneChange: () => void;
 }
 
 export const BottomControls: React.FC<BottomControlsProps> = ({
@@ -17,10 +21,14 @@ export const BottomControls: React.FC<BottomControlsProps> = ({
   layers,
   targetSpeed,
   timeOfDay,
+  egoLane,
+  autoLaneChange,
   onCameraViewChange,
   onToggleLayer,
   onSetSpeed,
   onTimeOfDayChange,
+  onLaneChange,
+  onToggleAutoLaneChange,
 }) => {
   // 实时系统时间状态
   const [currentTime, setCurrentTime] = useState({
@@ -141,7 +149,52 @@ export const BottomControls: React.FC<BottomControlsProps> = ({
           </div>
         </div>
 
-        {/* 4. 白天/夜间环境切换 */}
+        {/* 4. 自动变道与手动变道控制 */}
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-medium">变道</span>
+          <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800">
+            <button
+              type="button"
+              disabled={egoLane === 0}
+              onClick={() => onLaneChange('left')}
+              title="向左变道 (快捷键 A / ←)"
+              className={`px-2 py-1 rounded text-xs font-medium transition-all ${
+                egoLane === 0
+                  ? 'text-slate-600 cursor-not-allowed'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-cyan-300 active:scale-95'
+              }`}
+            >
+              ◀ 左变道
+            </button>
+            <button
+              type="button"
+              onClick={onToggleAutoLaneChange}
+              title="开启/关闭遇到前车时自动感知变道超车"
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                autoLaneChange
+                  ? 'bg-emerald-500/20 border border-emerald-400/70 text-emerald-300 font-bold shadow-[0_0_8px_rgba(16,185,129,0.35)]'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              智能变道
+            </button>
+            <button
+              type="button"
+              disabled={egoLane === 2}
+              onClick={() => onLaneChange('right')}
+              title="向右变道 (快捷键 D / →)"
+              className={`px-2 py-1 rounded text-xs font-medium transition-all ${
+                egoLane === 2
+                  ? 'text-slate-600 cursor-not-allowed'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-cyan-300 active:scale-95'
+              }`}
+            >
+              右变道 ▶
+            </button>
+          </div>
+        </div>
+
+        {/* 5. 白天/夜间环境切换 */}
         <div className="flex items-center gap-2">
           <span className="text-slate-400 font-medium">环境</span>
           <div className="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-800">
@@ -176,14 +229,17 @@ export const BottomControls: React.FC<BottomControlsProps> = ({
       {/* 中部车道示意小地图与图例说明（对齐原图） */}
       <div className="flex items-center gap-4 px-4 py-1 bg-slate-900/60 rounded-xl border border-slate-800/80">
         {/* 车道简易微缩示意图 */}
-        <div className="relative w-8 h-7 bg-slate-950/90 rounded border border-slate-700/80 flex items-center justify-around px-0.5">
+        <div className="relative w-9 h-7 bg-slate-950/90 rounded border border-slate-700/80 flex items-center justify-around px-0.5">
           <div className="w-[1px] h-full bg-amber-500/80" />
           <div className="w-[1px] h-full border-r border-dashed border-slate-600" />
-          <div className="w-[1px] h-full bg-slate-600" />
-          {/* 自车小点 */}
-          <div className="absolute w-2 h-2.5 rounded-sm bg-cyan-400 bottom-1 left-2 shadow-[0_0_6px_rgba(6,182,212,0.9)]" />
+          <div className="w-[1px] h-full border-r border-dashed border-slate-600" />
+          {/* 自车小点（随车道 0 / 1 / 2 平滑移动） */}
+          <div
+            className="absolute w-2 h-2.5 rounded-sm bg-cyan-400 bottom-1 transition-all duration-500 shadow-[0_0_6px_rgba(6,182,212,0.9)]"
+            style={{ left: `${7 + egoLane * 9}px` }}
+          />
           {/* 前车小点 */}
-          <div className="absolute w-2 h-3 rounded-sm bg-amber-400 top-1 right-1.5" />
+          <div className="absolute w-2 h-3 rounded-sm bg-amber-400 top-1 right-1" />
         </div>
 
         {/* 图例 */}

@@ -53,7 +53,9 @@ export interface CockpitState {
   cameraView: CameraView;
   timeOfDay: TimeOfDay;
   layers: LayerVisibility;
-  laneStatusText: string;     // 变道中 LANE CHANGE
+  laneStatusText: string;     // 变道中 / 车道保持
+  egoLane: 0 | 1 | 2;         // 当前自车目标车道 (0: 左快车道, 1: 中车道, 2: 右慢车道)
+  autoLaneChange: boolean;    // 智能自动变道超车开关
   decisionLogs: DecisionLogItem[];
   turnDistanceMeters: number; // 300米
 }
