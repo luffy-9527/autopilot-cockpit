@@ -35,7 +35,7 @@ export interface DecisionLogItem {
   id: string;
   time: string;
   text: string;
-  type: 'info' | 'success' | 'warn';
+  type: 'info' | 'success' | 'warn' | 'warning';
 }
 
 export interface CockpitState {
