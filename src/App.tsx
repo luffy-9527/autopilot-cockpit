@@ -6,6 +6,7 @@ import { Speedometer } from './components/ui/Speedometer';
 import { RightPanel } from './components/ui/RightPanel';
 import { BottomControls } from './components/ui/BottomControls';
 import { PerformanceHUD } from './components/ui/PerformanceHUD';
+import { LoadingHUD } from './components/ui/LoadingHUD';
 import type {
   CameraView,
   CockpitState,
@@ -16,6 +17,10 @@ import type {
 } from './types/cockpit';
 
 export function App() {
+  // 3D 数字孪生模型流式加载状态 (Draco 几何流式解压缩)
+  const [modelLoadingProgress, setModelLoadingProgress] = useState<number>(0);
+  const [isModelLoaded, setIsModelLoaded] = useState<boolean>(false);
+
   // 性能监视器状态 (默认展开，可按 P 键或点击右上角胶囊收起)
   const [perfStats, setPerfStats] = useState<PerfStats | null>(null);
   const [showPerfHUD, setShowPerfHUD] = useState<boolean>(true);
@@ -301,8 +306,27 @@ export function App() {
     setCockpitState((prev) => ({ ...prev, timeOfDay: time }));
   };
 
+  const handleModelLoaded = () => {
+    setIsModelLoaded(true);
+    setCockpitState((prev) => ({
+      ...prev,
+      decisionLogs: [
+        {
+          id: String(Date.now()),
+          time: getTimeStr(),
+          text: '宝马 M4 数字孪生模型挂载成功，Draco 几何流式解压缩就绪',
+          type: 'success',
+        },
+        ...prev.decisionLogs.slice(0, 5),
+      ],
+    }));
+  };
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#030712] font-sans">
+      {/* 3D 模型预加载 HUD 骨架进度遮罩 */}
+      <LoadingHUD progress={modelLoadingProgress} isLoaded={isModelLoaded} />
+
       {/* 3D WebGL 自动驾驶数字孪生主场景 */}
       <AutopilotScene
         currentSpeed={cockpitState.currentSpeed}
@@ -318,6 +342,8 @@ export function App() {
         onAutoLaneChangeTrigger={handleAutoLaneChangeTrigger}
         onLaneChangeComplete={handleLaneChangeComplete}
         onLaneChangeBlocked={handleLaneChangeBlocked}
+        onModelLoadingProgress={setModelLoadingProgress}
+        onModelLoaded={handleModelLoaded}
       />
 
       {/* 2D 车机座舱 HUD 系统 UI 层 */}

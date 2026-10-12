@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import type { CameraView, LayerVisibility, SurroundingVehicle, TimeOfDay, PerfStats } from '../../types/cockpit';
 import { toScreenPosition } from '../../utils/math';
 
@@ -18,6 +19,8 @@ interface AutopilotSceneProps {
   onAutoLaneChangeTrigger?: (targetLane: 0 | 1 | 2, reasonText: string) => void;
   onLaneChangeComplete?: (lane: 0 | 1 | 2) => void;
   onLaneChangeBlocked?: (safeLane: 0 | 1 | 2, reasonText: string) => void;
+  onModelLoadingProgress?: (progress: number) => void;
+  onModelLoaded?: () => void;
 }
 
 export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
@@ -33,6 +36,8 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
   onAutoLaneChangeTrigger,
   onLaneChangeComplete,
   onLaneChangeBlocked,
+  onModelLoadingProgress,
+  onModelLoaded,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [projectedVehicles, setProjectedVehicles] = useState<SurroundingVehicle[]>([]);
@@ -58,6 +63,12 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
   const onLaneChangeBlockedRef = useRef(onLaneChangeBlocked);
   onLaneChangeBlockedRef.current = onLaneChangeBlocked;
 
+  const onModelLoadingProgressRef = useRef(onModelLoadingProgress);
+  onModelLoadingProgressRef.current = onModelLoadingProgress;
+
+  const onModelLoadedRef = useRef(onModelLoaded);
+  onModelLoadedRef.current = onModelLoaded;
+
   const speedRef = useRef(currentSpeed);
   speedRef.current = currentSpeed;
 
@@ -73,6 +84,8 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    let activeDracoLoader: DRACOLoader | null = null;
 
     // 1. 初始化场景、相机与高性能渲染器
     const width = container.clientWidth || window.innerWidth;
@@ -1156,8 +1169,13 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       egoCabinGroup = carWrapper;
       car.add(carWrapper);
 
-      // 加载原厂宝马 M4 Competition M Package 官方高精度 3D 模型
+      // 加载原厂宝马 M4 Competition M Package 官方高精度 3D 模型 (Draco 几何压缩版 · 3.86 MB)
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath('/draco/');
       const gltfLoader = new GLTFLoader();
+      gltfLoader.setDRACOLoader(dracoLoader);
+      activeDracoLoader = dracoLoader;
+
       gltfLoader.load(
         '/bmw_m4.glb',
         (gltf) => {
@@ -1372,10 +1390,19 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
           });
 
           carWrapper.add(innerPivot);
+          onModelLoadingProgressRef.current?.(100);
+          onModelLoadedRef.current?.();
         },
-        undefined,
+        (xhr) => {
+          if (xhr.total > 0) {
+            const p = Math.min(99, Math.round((xhr.loaded / xhr.total) * 100));
+            onModelLoadingProgressRef.current?.(p);
+          }
+        },
         (error) => {
           console.error('Failed to load BMW M4 GLB model:', error);
+          // 容错兜底：发生异常也标记完成，杜绝卡屏
+          onModelLoadedRef.current?.();
         }
       );
 
@@ -2540,6 +2567,7 @@ export const AutopilotScene: React.FC<AutopilotSceneProps> = ({
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(animationFrameId);
+      activeDracoLoader?.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
